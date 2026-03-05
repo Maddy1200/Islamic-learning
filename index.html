@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IlmPath - Islamic Stories (Hinglish)</title>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+<style>
+body { font-family: 'Poppins', sans-serif; background-color: #f8f6f1; }
+.glass { backdrop-filter: blur(10px); background-color: rgba(255,255,255,0.6); }
+.hover-card:hover { transform: translateY(-5px); transition: 0.3s; }
+</style>
+</head>
+<body class="text-gray-900">
+
+<!-- Login/Register -->
+<div id="login-screen" class="flex flex-col items-center justify-center h-screen">
+  <div class="glass p-6 rounded-xl shadow-lg w-full max-w-sm">
+    <h2 class="text-2xl font-bold mb-4 text-center">Login / Register</h2>
+    <input type="text" id="username" placeholder="Enter Username" class="border p-2 w-full rounded mb-3">
+    <input type="email" id="email" placeholder="Enter Email" class="border p-2 w-full rounded mb-3">
+    <input type="password" id="password" placeholder="Enter Password" class="border p-2 w-full rounded mb-3">
+    <button id="login-btn" class="bg-green-900 text-white px-4 py-2 w-full rounded hover:bg-green-800">Login / Register</button>
+    <button id="forgot-btn" class="mt-2 text-sm text-blue-700 underline">Forgot Password?</button>
+    <p class="mt-2 text-gray-600 text-sm">Admin Example: Username: admin, Email: admin@example.com, Password: 123456</p>
+  </div>
+</div>
+
+<!-- Main App -->
+<div id="app-screen" class="hidden">
+  <section class="bg-green-900 text-white p-10 text-center rounded-b-3xl">
+    <h1 class="text-4xl font-bold mb-3">Learn Islam Daily</h1>
+    <p class="text-lg mb-5">Islamic Stories aur Nabi ﷺ ke Teachings (Hinglish)</p>
+    <p id="user-display" class="font-bold"></p>
+  </section>
+
+  <!-- Daily Story Card -->
+  <section class="p-6 flex flex-col items-center">
+    <div class="glass shadow-lg p-6 rounded-xl w-full max-w-lg hover-card">
+      <h2 class="text-2xl font-bold mb-3">📖 Aaj ka Islamic Story</h2>
+      <p id="daily-story" class="mb-4 text-gray-800"></p>
+      <button id="mark-read" class="bg-green-900 text-white px-4 py-2 rounded hover:bg-green-800">Mark as Read ✅</button>
+      <p id="streak" class="mt-2 text-gray-500"></p>
+    </div>
+  </section>
+
+  <!-- Practical Teachings -->
+  <section class="p-6 flex flex-col items-center">
+    <h2 class="text-2xl font-bold mb-3">🕌 Practical Teachings (Hinglish)</h2>
+    <div id="teachings" class="grid grid-cols-1 md:grid-cols-2 gap-4 w-full max-w-4xl"></div>
+  </section>
+
+  <!-- Leaderboard Section -->
+  <section class="p-6 bg-gray-100 rounded-xl max-w-4xl mx-auto mt-10 shadow-lg">
+    <h2 class="text-3xl font-bold mb-6 text-center text-green-900">🏆 Leaderboard - Top 30 Streaks</h2>
+    <div id="modern-leaderboard" class="grid gap-4"></div>
+  </section>
+
+  <footer class="text-center text-gray-600 p-4 mt-6">
+    Developed by Mudassir Bubere
+  </footer>
+</div>
+
+<script>
+// ---------- Firebase Init ----------
+const firebaseConfig = {
+ apiKey: "AIzaSyA37BLFO15KEoHkKQDLrVexxFAIZ2XArhk",
+ authDomain: "islamic-learning-b02f9.firebaseapp.com",
+ databaseURL: "https://islamic-learning-b02f9-default-rtdb.firebaseio.com/",
+ projectId: "islamic-learning-b02f9",
+ storageBucket: "islamic-learning-b02f9.firebasestorage.app",
+ messagingSenderId: "438187329053",
+ appId: "1:438187329053:web:44a80c45c3fadfc80ce8f4",
+ measurementId: "G-VM4R9NCYEW"
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
+
+// ---------- Elements ----------
+const loginScreen = document.getElementById('login-screen');
+const appScreen = document.getElementById('app-screen');
+const emailInput = document.getElementById('email');
+const passwordInput = document.getElementById('password');
+const usernameInput = document.getElementById('username');
+const loginBtn = document.getElementById('login-btn');
+const forgotBtn = document.getElementById('forgot-btn');
+const userDisplay = document.getElementById('user-display');
+const leaderboardContainer = document.getElementById('modern-leaderboard');
+
+let currentUser = null;
+
+// ---------- Hash password ----------
+function hashPassword(str){
+  let hash = 0;
+  for(let i=0;i<str.length;i++){ hash=(hash<<5)-hash+str.charCodeAt(i); hash |=0; }
+  return hash;
+}
+
+// ---------- Login/Register ----------
+loginBtn.addEventListener('click',()=>{
+  const email = emailInput.value.trim().toLowerCase();
+  const password = passwordInput.value;
+  const username = usernameInput.value.trim();
+  if(!email || !password || !username){ alert("Username, Email aur Password daalein"); return; }
+
+  const hashedPass = hashPassword(password);
+  const key = email.replace('.','_');
+  const userRef = db.ref('users/'+key);
+
+  userRef.get().then(snapshot=>{
+    if(snapshot.exists()){
+      const data = snapshot.val();
+      if(data.password !== hashedPass){ alert("Password galat hai!"); return; }
+      // ensure username exists
+      if(!data.username){ data.username = username; userRef.update({username:username}); }
+      currentUser = key;
+      showApp(data);
+    }else{
+      // create new user
+      userRef.set({password:hashedPass, streak:0, lastVisit:"", username:username}).then(()=>{
+        currentUser = key;
+        showApp({password:hashedPass, streak:0, lastVisit:"", username:username});
+      });
+    }
+  });
+});
+
+// ---------- Forgot Password ----------
+forgotBtn.addEventListener('click',()=>{
+  const email = emailInput.value.trim().toLowerCase();
+  if(!email){ alert("Email daalein."); return; }
+  const key = email.replace('.','_');
+  const userRef = db.ref('users/'+key);
+  userRef.get().then(snapshot=>{
+    if(!snapshot.exists()){ alert("Email nahi mila"); return; }
+    const newPassword = prompt("Naya password daalein:");
+    if(!newPassword){ alert("Password blank nahi ho sakta"); return; }
+    userRef.update({password:hashPassword(newPassword)}).then(()=>alert("Password reset ho gaya!"));
+  });
+});
+
+// ---------- Stories & Teachings ----------
+const islamicStories = [
+  {title:"Rehmat aur Compassion", content:"Nabi ﷺ hamesha sab ke saath meherbani karte the. Ek martaba unhon ne ek oont ke paon se kaanta nikaala. Sabak: Har makhlooq ke saath meherbani karo."},
+  {title:"Hijrah - Makkah se Madinah", content:"Jab Nabi ﷺ Makkah se Madinah hijrah kiye, to sabr aur Allah par bharosa dikhaya. Sabak: Mushkil waqt me Allah par bharosa rakho aur doosron ki madad karo."},
+  {title:"Sadqah aur Generosity", content:"Abu Bakr رضي الله عنه ne apni daulat Allah ke raaste me de di. Sabak: Chhoti ya badi sadqah, dono ka ajar bohot zyada hai."},
+  {title:"Walidain ke saath Meherbani", content:"Nabi ﷺ ne farmaya: 'Jannat maa ke pairon ke neeche hai.' Apne walidain ki izzat aur khidmat karo."},
+  {title:"Sachai aur Imandari", content:"Ek sahabi ne kaha ki woh hamesha sach bolega. Nabi ﷺ ne uski tareef ki aur farmaya: Sachai insaan ko nek amal aur jannat tak le jaati hai."}
+];
+
+const teachings = [
+  {title:"💧 Wudu ka Tarika", content:"1. Niyyat karo (Bismillah)\n2. Haath teen martaba dholo\n3. Munh aur naak teen martaba saaf karo\n4. Chehra teen martaba dholo\n5. Bazu ko kohni tak teen martaba dholo\n6. Sar ko pochho\n7. Pairo ko teen martaba dholo"},
+  {title:"🛁 Ghusl ka Tarika", content:"1. Niyyat karo\n2. Private parts dholo\n3. Wudu karo\n4. Puri body par paani daalo (pehle daaye taraf, phir baaye)\n5. Baalon aur scalp ko dholo"},
+  {title:"🕌 Salah/Namaz ka Tarika", content:"1. Niyyat karo (Niyat)\n2. Takbeer (Allahu Akbar)\n3. Qiyam, Surah Fatiha parho\n4. Ruku, Sujood, Tashahhud\n5. Salam se khatam karo"},
+  {title:"🌅 Morning & Evening Sunnahs", content:"1. Morning Dua parho\n2. Fajr Sunnah namaz karo\n3. Din bhar Allah ko yaad karo\n4. Evening: Maghrib Sunnah aur evening Dua parho"},
+  {title:"🤲 Akhlaq aur Adab", content:"1. Salam karo\n2. Hamesha sach bolo\n3. Padosiyon ke saath meherbani karo\n4. Humility maintain karo\n5. Hamesha doosron ki madad karo"}
+];
+
+// ---------- Show App & Daily Story ----------
+function showApp(userData){
+  loginScreen.style.display='none';
+  appScreen.style.display='block';
+  const username = userData.username;
+  userDisplay.innerText = `Welcome, ${username}`;
+
+  const today = new Date().toDateString();
+  const userRef = db.ref('users/'+currentUser);
+
+  let todayStory = islamicStories[Math.floor(Math.random()*islamicStories.length)];
+
+  if(userData.lastVisit !== today){
+    userData.lastVisit = today;
+    userData.streak = (userData.streak||0)+1;
+    userData.todayStory = todayStory;
+    userRef.update(userData);
+  }else{
+    todayStory = userData.todayStory;
+  }
+
+  document.getElementById('daily-story').innerHTML = `<strong>${todayStory.title}</strong><br>${todayStory.content}`;
+  document.getElementById('streak').innerText = "🔥 Streak: " + userData.streak + " days";
+
+  document.getElementById('mark-read').addEventListener('click',()=>{alert("Alhamdulillah! Aaj ka story pad liya ✅");});
+
+  const teachingsContainer = document.getElementById('teachings');
+  teachingsContainer.innerHTML='';
+  teachings.forEach(item=>{
+    const card = document.createElement('div');
+    card.className="glass p-4 rounded-xl hover-card shadow-lg cursor-pointer";
+    card.innerHTML=`<h3 class="font-bold text-lg mb-2">${item.title}</h3><p class="text-gray-800 hidden whitespace-pre-line">${item.content}</p>`;
+    card.addEventListener('click',()=>{card.querySelector('p').classList.toggle('hidden')});
+    teachingsContainer.appendChild(card);
+  });
+
+  // Leaderboard - Top 30 with usernames
+  db.ref('users').on('value', snapshot => {
+    leaderboardContainer.innerHTML = '';
+    const allUsers = snapshot.val();
+    if(allUsers){
+      const sorted = Object.keys(allUsers).sort((a,b)=>allUsers[b].streak - allUsers[a].streak).slice(0,30);
+      sorted.forEach((u,index)=>{
+        const user = allUsers[u];
+        const uname = user.username || u.replace('_','.');
+        const card = document.createElement('div');
+        card.className = "flex justify-between items-center p-4 bg-white rounded-xl shadow hover:shadow-lg transition transform hover:-translate-y-1";
+        card.innerHTML = `
+          <div class="flex items-center gap-4">
+            <span class="text-xl font-bold text-green-900">${index+1}</span>
+            <div>
+              <p class="font-semibold">${uname}</p>
+            </div>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="font-bold text-green-800">${user.streak}</span>
+            <span>🔥</span>
+          </div>
+        `;
+        leaderboardContainer.appendChild(card);
+      });
+    }
+  });
+}
+</script>
+</body>
+</html>
